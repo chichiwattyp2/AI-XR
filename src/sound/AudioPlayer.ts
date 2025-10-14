@@ -21,7 +21,7 @@ export class AudioPlayer extends Script {
 
   constructor(options: AudioPlayerOptions = {}) {
     super();
-    this.options = {sampleRate: 48000, channelCount: 1, ...options};
+    this.options = {sampleRate: 24000, channelCount: 1, ...options};
     if (options.category) {
       this.category = options.category;
     }
@@ -68,6 +68,11 @@ export class AudioPlayer extends Script {
       this.gainNode.connect(this.audioContext.destination);
       this.updateGainNodeVolume();
     }
+    
+    // Ensure audio context is running (not suspended)
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
   }
 
   async playAudioChunk(base64AudioData: string) {
@@ -103,11 +108,17 @@ export class AudioPlayer extends Script {
 
     const source = this.audioContext!.createBufferSource();
     source.buffer = audioBuffer;
+    
     // Connect through gain node for volume control
     source.connect(this.gainNode || this.audioContext!.destination);
     source.onended = () => this.playNextAudioBuffer();
+    
+    // Start playback
     source.start(startTime);
-    this.nextStartTime = startTime + audioBuffer.duration;
+    
+    // Calculate next start time with a tiny overlap to prevent gaps
+    // This helps create smooth transitions between audio chunks
+    this.nextStartTime = startTime + audioBuffer.duration - 0.001;
   }
 
   clearQueue() {
@@ -138,6 +149,7 @@ export class AudioPlayer extends Script {
       this.audioContext.close();
       this.audioContext = undefined;
       this.gainNode = undefined;
+      this.nextStartTime = 0; // Reset timing
     }
   }
 

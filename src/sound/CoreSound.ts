@@ -34,9 +34,9 @@ export class CoreSound extends Script {
         new BackgroundMusic(this.listener, this.categoryVolumes);
     this.spatialAudio = new SpatialAudio(this.listener, this.categoryVolumes);
     this.audioListener = new AudioListener();
-    this.audioPlayer = new AudioPlayer();
-    
-    // Wire up volume control for audio player
+    // Initialize with 48kHz for general audio playback
+    // Gemini Live uses 24kHz but that gets handled automatically via playAIAudio
+    this.audioPlayer = new AudioPlayer({sampleRate: 48000});
     this.audioPlayer.setCategoryVolumes(this.categoryVolumes);
 
     camera.add(this.listener);
@@ -144,6 +144,16 @@ export class CoreSound extends Script {
   }
 
   async playAIAudio(base64AudioData: string) {
+    // Gemini Live API outputs audio at 24kHz
+    // Only recreate AudioContext if sample rate needs to change
+    const currentRate = this.audioPlayer['options'].sampleRate;
+    if (currentRate !== 24000) {
+      this.audioPlayer['options'].sampleRate = 24000;
+      // Only stop if context exists and is different sample rate
+      if (this.audioPlayer['audioContext']) {
+        this.audioPlayer.stop(); // Reset context with new sample rate
+      }
+    }
     await this.audioPlayer.playAudioChunk(base64AudioData);
   }
 
