@@ -35,6 +35,9 @@ export class CoreSound extends Script {
     this.spatialAudio = new SpatialAudio(this.listener, this.categoryVolumes);
     this.audioListener = new AudioListener();
     this.audioPlayer = new AudioPlayer();
+    
+    // Wire up volume control for audio player
+    this.audioPlayer.setCategoryVolumes(this.categoryVolumes);
 
     camera.add(this.listener);
     this.add(this.backgroundMusic);
@@ -60,6 +63,7 @@ export class CoreSound extends Script {
 
   setMasterVolume(level: number) {
     this.categoryVolumes.masterVolume = THREE.MathUtils.clamp(level, 0.0, 1.0);
+    this.audioPlayer?.updateGainNodeVolume();
   }
 
   getMasterVolume() {
@@ -80,18 +84,55 @@ export class CoreSound extends Script {
         1.0;
   }
 
-  async enableAudio(options: {streamToAI?: boolean;} = {}) {
-    const {streamToAI = true} = options;
+  async enableAudio(options: {streamToAI?: boolean; accumulate?: boolean} = {}) {
+    const {streamToAI = true, accumulate = false} = options;
     if (streamToAI && this.speechRecognizer?.isListening) {
       console.log('Disabling SpeechRecognizer while streaming audio.');
       this.speechRecognizer.stop();
     }
     this.audioListener.setAIStreaming(streamToAI);
-    await this.audioListener.startCapture({});
+    await this.audioListener.startCapture({accumulate});
   }
 
   disableAudio() {
     this.audioListener?.stopCapture();
+  }
+
+  /**
+   * Starts recording audio with chunk accumulation
+   */
+  async startRecording() {
+    await this.audioListener.startCapture({accumulate: true});
+  }
+
+  /**
+   * Stops recording and returns the accumulated audio buffer
+   */
+  stopRecording(): ArrayBuffer|null {
+    const buffer = this.audioListener.getAccumulatedBuffer();
+    this.audioListener.stopCapture();
+    return buffer;
+  }
+
+  /**
+   * Gets the accumulated recording buffer without stopping
+   */
+  getRecordedBuffer(): ArrayBuffer|null {
+    return this.audioListener.getAccumulatedBuffer();
+  }
+
+  /**
+   * Clears the accumulated recording buffer
+   */
+  clearRecordedBuffer() {
+    this.audioListener.clearAccumulatedBuffer();
+  }
+
+  /**
+   * Gets the sample rate being used for recording
+   */
+  getRecordingSampleRate(): number {
+    return this.audioListener.audioContext?.sampleRate || 48000;
   }
 
   setAIStreaming(enabled: boolean) {
@@ -112,6 +153,29 @@ export class CoreSound extends Script {
 
   isAIAudioPlaying() {
     return this.audioPlayer?.getIsPlaying();
+  }
+
+  /**
+   * Plays a raw audio buffer (Int16 PCM data) with proper sample rate
+   */
+  async playRecordedAudio(audioBuffer: ArrayBuffer, sampleRate?: number) {
+    if (!audioBuffer) return;
+    
+    // Update sample rate if needed
+    if (sampleRate && sampleRate !== this.audioPlayer['options'].sampleRate) {
+      this.audioPlayer['options'].sampleRate = sampleRate;
+      this.audioPlayer.stop(); // Reset context with new sample rate
+    }
+    
+    // Convert ArrayBuffer to base64
+    const bytes = new Uint8Array(audioBuffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64Audio = btoa(binary);
+    
+    await this.audioPlayer.playAudioChunk(base64Audio);
   }
 
   isAudioEnabled() {
